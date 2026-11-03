@@ -1,0 +1,30 @@
+/* Layer order: PrimeVue component styles sit below Tailwind utilities, so utilities can override them. */
+@layer theme, base, primevue, components, utilities;
+
+@import "tailwindcss";
+@plugin "tailwindcss-primeui";
+
+@layer base {
+  html {
+    /* Native controls & scrollbars in dark too */
+    color-scheme: dark;
+  }
+  body {
+    background: var(--p-surface-950);
+    color: var(--p-text-color);
+  }
+}
+
+@layer components {
+  .nav-link {
+    @apply rounded-lg px-3 py-1.5 text-muted-color hover:bg-emphasis hover:text-color;
+  }
+  .nav-link-active {
+    @apply bg-highlight;
+  }
+
+  /* Diagnostics result tables */
+  .diag-row > td {
+    @apply border-b border-surface py-1.5 pr-2 align-top wrap-anywhere;
+  }
+}
