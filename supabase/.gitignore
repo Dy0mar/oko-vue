@@ -1,0 +1,14 @@
+# Supabase
+.branches
+.temp
+
+# dotenvx
+.env.keys
+.env.local
+.env.*.local
+
+# Edge function secrets
+functions/.env
+
+# Studio SQL snippets (local scratch, may contain personal data)
+snippets/
