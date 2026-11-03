@@ -1,197 +1,206 @@
 # OKO
 
-Відеодзвінки на двох (максимум трьох) на WebRTC. Навчальний проєкт: ядро WebRTC пишемо самі.
+[![CI](https://github.com/Dy0mar/oko-vue/actions/workflows/ci.yml/badge.svg)](https://github.com/Dy0mar/oko-vue/actions/workflows/ci.yml)
 
-Зараз є:
-- вхід (email + пароль, реєстрація вимкнена);
-- діагностика мережі `/diag`;
-- адмінка `/admin`: STUN/TURN-сервери та звіти діагностики.
+A small personal pet project: one-to-one (up to three people) video calls built on WebRTC with Vue 3 and Supabase.
+It is meant to work across restrictive networks, where well-known services like Google Meet or Jitsi get throttled.
 
-Дзвінок — наступний етап.
+## ✨ Features
 
-## Стек
+### 🔐 Email/password login with a whitelist (sign-ups disabled, users are created by the admin)
 
-| Частина | Технології |
-|---|---|
-| Frontend | Vue 3, PrimeVue 4 (MIT; v5 — комерційна ліцензія PrimeUI), Tailwind 4 + `tailwindcss-primeui`, vue-router, supabase-js |
-| Backend | Supabase: Auth, Realtime (signaling), Postgres + RLS, Edge Functions (Deno) |
-| Хостинг | Vercel (статичний SPA з `frontend/`) |
-| Медіа | P2P WebRTC; STUN/TURN-сервери налаштовує адмін |
+### 🩺 Network diagnostics: Supabase, every STUN/TURN URL, NAT type, camera and microphone. Reports are sent to the admin automatically
 
-## Структура
+### ⚙️ Admin panel: manage STUN/TURN servers and test each one, review diagnostics reports
+
+### 📞 Video calls (in progress): rooms with Meet-style links, audio/video, connection stats
+
+## 🛠 Tech Stack
+
+### Frontend
+
+- [Vue 3](https://vuejs.org/)
+- [PrimeVue 4](https://primevue.org/) (MIT; v5 moved to a commercial PrimeUI license)
+- [Tailwind CSS 4](https://tailwindcss.com/) + [tailwindcss-primeui](https://github.com/primefaces/tailwindcss-primeui)
+- [TypeScript](https://www.typescriptlang.org/)
+- Native [WebRTC](https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API): no wrapper libraries, the core is written by hand
+
+### Backend
+
+- [Supabase Auth](https://supabase.com/docs/guides/auth)
+- [Supabase Realtime](https://supabase.com/docs/guides/realtime) for signaling
+- Supabase Database (PostgreSQL + Row Level Security)
+- [Supabase Edge Functions](https://supabase.com/docs/guides/functions) (Deno)
+
+### Hosting
+
+- [Vercel](https://vercel.com/) for the static SPA from `frontend/`
+
+## 📁 Project Structure
 
 ```
-.github/workflows/ci.yml      CI: oxlint, eslint, prettier, vue-tsc, build
+.github/workflows/ci.yml       oxlint, eslint, prettier, vue-tsc, build
 frontend/
-  src/api/                    supabase-клієнт і запити (iceServers, adminIceServers, diagReports)
-  src/composables/useAuth.ts  сесія, isAdmin, signIn/signOut (singleton)
-  src/router/                 маршрути + guard (meta: requiresAuth / requiresAdmin / guestOnly)
-  src/pages/                  LoginPage, DiagPage, AdminPage
-  src/components/             AppHeader, admin/*
-  src/diagnostics/            probes (ICE/HTTP/media), ice (тест STUN/TURN), realtime
-  src/assets/main.css         Tailwind + порядок CSS-шарів для PrimeVue
-  vercel.json                 SPA rewrite + security headers
+  src/api/                     Supabase client and queries
+  src/composables/useAuth.ts   session state, isAdmin, signIn/signOut
+  src/router/                  routes + guard (requiresAuth / requiresAdmin / guestOnly)
+  src/pages/                   Login, Diag, Admin
+  src/components/              AppHeader, admin/*
+  src/diagnostics/             ICE / HTTP / media probes
+  vercel.json                  SPA rewrite + security headers
 supabase/
-  config.toml                 локальний стек (реєстрація вимкнена)
-  migrations/                 схема БД, RLS, стартові сервери
-  functions/ice-servers/      edge function: ICE-сервери для залогіненого юзера
+  config.toml                  local stack (sign-ups disabled)
+  migrations/                  schema, RLS, seeded STUN servers
+  functions/ice-servers/       ICE servers for the signed-in user
 ```
 
-Імпорти йдуть через alias `src/...`, а не `@/...`: так одразу видно, що це не стороння бібліотека.
+Imports use the `src/...` alias (not `@/...`), so it is obvious they are not third-party.
 
-## Ролі та безпека
+## 🔒 Roles & Security
 
-- **Whitelist:** реєстрацію вимкнено, юзерів створює адмін (Studio → Authentication → Add user).
-- **Адмін** визначається полем `app_metadata.role = "admin"`. Юзер змінити його не може. Роль потрапляє в JWT під час входу, тому **після зміни ролі треба перелогінитися**.
-- **Фронтенд** (`isAdmin`) лише ховає UI. Справжній захист — **RLS** (`public.is_admin()`) і перевірка JWT в edge function.
-- **`ice_servers`** бачить і змінює тільки адмін. Учасники отримують готовий список серверів через функцію `ice-servers`.
-- **`diag_reports`:** юзер записує свій звіт (email береться з JWT), читає й видаляє звіти лише адмін.
-- **Змінні `VITE_*` потрапляють у браузер.** Там можна тримати лише URL і **publishable**-ключ. Secret / service_role key — **ніколи**.
+- The admin is `app_metadata.role = "admin"`. Users cannot change it themselves. The role gets into the JWT at sign-in, so **sign in again after changing it**.
+- `isAdmin` on the frontend only hides UI. Real enforcement is RLS (`public.is_admin()`) plus JWT verification in the edge function.
+- `ice_servers` is admin-only. Participants get a ready list from the `ice-servers` function.
+- `diag_reports`: users insert their own report (email is taken from the JWT). Only the admin can read or delete reports.
+- `VITE_*` variables are shipped to the browser. Only put the URL and the **publishable** key there, never the secret / service_role key.
 
----
+## 🚀 Local Development
 
-## Локальний запуск з нуля
-
-Потрібно: Node `^22.18` або `>=24.12`, pnpm 12 (`corepack enable`), Docker.
-Supabase CLI запускається через `npx supabase …` з **кореня** репо.
+Requirements: Node `^22.18` or `>=24.12`, pnpm 12 (`corepack enable`), Docker.
+Run the Supabase CLI via `npx supabase …` from the **repo root**.
 
 ```bash
-# 1. Залежності фронтенду
+# 1. Frontend dependencies
 cd frontend && pnpm install && cd ..
 
-# 2. Локальний Supabase (Postgres, Auth, Realtime, Studio). Міграції застосовуються автоматично.
+# 2. Local Supabase (Postgres, Auth, Realtime, Studio). Migrations are applied automatically.
 npx supabase start
-npx supabase status            # URL-и і ключі; машинно: npx supabase status -o env
+npx supabase status                # URLs and keys
 
-# 3. Edge functions (окремий процес, тримати запущеним)
+# 3. Edge functions (separate process, keep it running)
 npx supabase functions serve
 
-# 4. Env фронтенду: frontend/.env.local (шаблон — frontend/.env.example)
+# 4. Frontend env: frontend/.env.local (template: frontend/.env.example)
 #    VITE_SUPABASE_URL=http://127.0.0.1:54321
-#    VITE_SUPABASE_PUBLISHABLE_KEY=<Publishable key з `supabase status`>
+#    VITE_SUPABASE_PUBLISHABLE_KEY=<Publishable key from `supabase status`>
 
-# 5. Фронтенд
-cd frontend && pnpm dev        # http://localhost:5173
+# 5. Frontend
+cd frontend && pnpm dev            # http://localhost:5173
 ```
 
-Studio: http://127.0.0.1:54323.
+Studio: http://127.0.0.1:54323
 
-### Юзери і адмін
-1. Studio → Authentication → **Add user** (з позначкою «Auto confirm»).
-2. Зробити адміном у SQL Editor, потім **перелогінитися**:
-   ```sql
-   update auth.users
-   set raw_app_meta_data = raw_app_meta_data || '{"role": "admin"}'
-   where email = 'admin@example.com'
-   returning email, raw_app_meta_data;
-   ```
-   Без `returning` Studio пише «No rows returned». Це не помилка: `update` просто нічого не повертає для показу.
+### Users & admin
 
-### Команди фронтенду (`frontend/`)
+1. Studio → Authentication → **Add user** (tick "Auto confirm").
+2. Make yourself admin in the SQL Editor, then **sign in again**:
 
-| Команда | Що робить |
+```sql
+update auth.users
+set raw_app_meta_data = raw_app_meta_data || '{"role": "admin"}'
+where email = 'admin@example.com'
+returning email, raw_app_meta_data;
+```
+
+Without `returning`, Studio shows "No rows returned". That does not mean the update failed.
+
+### Frontend scripts (`frontend/`)
+
+| Command | What it does |
 |---|---|
-| `pnpm dev` | dev-сервер |
+| `pnpm dev` | dev server |
 | `pnpm build` | type-check + production build |
-| `pnpm lint` | oxlint + eslint **з автовиправленням** |
-| `pnpm format` | prettier (запис) |
-| `pnpm run check` | усе, що робить CI, без виправлень: oxlint, eslint, prettier, vue-tsc, build |
+| `pnpm lint` | oxlint + eslint **with autofix** |
+| `pnpm format` | prettier (write) |
+| `pnpm run check` | everything CI runs, no autofix: oxlint, eslint, prettier, vue-tsc, build |
 
-`pnpm ci` — вбудована команда pnpm (чиста інсталяція), не наш скрипт. Наш — `pnpm run check`.
+`pnpm ci` is a built-in pnpm command (clean install), not our script. Use `pnpm run check`.
 
-### Міграції БД
+### Database migrations
 
 ```bash
-npx supabase migration new <name>   # створює supabase/migrations/<timestamp>_<name>.sql
-npx supabase migration up           # застосувати нові міграції до ЛОКАЛЬНОЇ бази (дані зберігаються)
-npx supabase db reset               # ⚠️ перестворює локальну базу з нуля: юзери й дані зникнуть
+npx supabase migration new <name>   # creates supabase/migrations/<timestamp>_<name>.sql
+npx supabase migration up           # apply new migrations to the LOCAL db (data is kept)
+npx supabase db reset               # ⚠️ recreates the local db from scratch: users and data are lost
 ```
 
-Міграцію, вже застосовану в хмарі, не редагуй. Замість цього створюй нову.
+Never edit a migration that is already applied in the cloud. Add a new one instead.
 
----
+## 📦 Deployment
 
-## Деплой
+### Supabase (cloud project `oko`, ref `zvoqfyivpaqiqahwcjmh`)
 
-### Supabase (хмарний проєкт `oko`, ref `zvoqfyivpaqiqahwcjmh`)
+Once per machine:
 
-Один раз на машині:
 ```bash
 npx supabase login
-npx supabase link --project-ref zvoqfyivpaqiqahwcjmh   # спитає пароль БД (Dashboard → Project Settings → Database)
+npx supabase link --project-ref zvoqfyivpaqiqahwcjmh   # asks for the DB password (Dashboard → Project Settings → Database)
 ```
 
-Деплой змін:
+Ship changes:
+
 ```bash
-npx supabase migration list --remote      # що є локально і що вже в хмарі
-npx supabase db push --remote --dry-run   # що саме буде застосовано
-npx supabase db push --remote             # застосувати міграції
-npx supabase functions deploy ice-servers # задеплоїти функцію
+npx supabase migration list --remote      # local vs cloud
+npx supabase db push --remote --dry-run   # preview
+npx supabase db push --remote             # apply migrations
+npx supabase functions deploy ice-servers # deploy the edge function
 ```
 
-Варто знати:
-- **У CLI 3 `db push` без `--remote` іде в ЛОКАЛЬНУ базу.**
-- Якщо CLI запускає агент (Claude Code тощо), зміни в production вимагають `--yes`, і агент має спершу спитати тебе.
-- **Не запускай `npx supabase config push`.** Він перезапише налаштування Auth у хмарі локальним `config.toml`, включно з `site_url = localhost`.
+- **In CLI 3, `db push` without `--remote` targets the LOCAL db.**
+- When an agent (e.g. Claude Code) runs the CLI, production changes require `--yes`, and the agent should ask you first.
+- **Do not run `npx supabase config push`.** It overwrites the cloud Auth settings with the local `config.toml`, including `site_url = localhost`.
 
-Налаштування Auth у хмарі робляться вручну, у Dashboard:
-- Authentication → Sign In / Providers → **вимкнути «Allow new users to sign up»**;
-- Authentication → URL Configuration → **Site URL** = адреса сайту на Vercel.
+Cloud Auth settings are set by hand in the Dashboard:
 
-Секрети edge function (зараз не потрібні, лише для Cloudflare TURN):
+- Authentication → Sign In / Providers → **disable "Allow new users to sign up"**
+- Authentication → URL Configuration → **Site URL** = your Vercel URL
+
+Edge function secrets (only needed for Cloudflare TURN):
+
 ```bash
 npx supabase secrets set CF_TURN_KEY_ID=... CF_TURN_API_TOKEN=...
-# локально: supabase/functions/.env (шаблон — .env.example), потім перезапустити functions serve
+# locally: supabase/functions/.env (template: .env.example), then restart `functions serve`
 ```
-`SUPABASE_URL` і ключі хмара підставляє у функції сама.
+
+`SUPABASE_URL` and the keys are injected into functions by the platform.
 
 ### Vercel
-- **Root Directory:** `frontend` (Framework: Vite, визначиться автоматично).
+
+- **Root Directory:** `frontend` (Vite is detected automatically)
 - **Environment Variables:**
   - `VITE_SUPABASE_URL` = `https://zvoqfyivpaqiqahwcjmh.supabase.co`
   - `VITE_SUPABASE_PUBLISHABLE_KEY` = Dashboard → Project Settings → API Keys → Publishable
-- Змінні `VITE_*` вшиваються в бандл **під час збірки**, тому після зміни env потрібен **Redeploy**.
-- `vercel.json` віддає `index.html` для всіх маршрутів SPA і додає security headers.
+- `VITE_*` values are baked into the bundle **at build time**, so **redeploy** after changing them.
 
----
+## 🌐 STUN / TURN
 
-## STUN/TURN
+Servers are managed in **`/admin` → STUN/TURN servers**:
 
-Сервери налаштовуються в **`/admin` → Сервери STUN/TURN**:
-- **Статичний** сервер: адреси (`stun:`, `turn:`, `turns:`), для TURN також логін і пароль.
-- **Cloudflare TURN:** тимчасові креденшели генеруються функцією з секретів `CF_TURN_*`. Зараз вимкнено, бо Cloudflare вимагає платіжну картку.
-- Безкоштовні TURN без картки: Metered, ExpressTURN (поточні ліміти дивись на їхніх сайтах). Додаються як статичні.
-- Кнопка ⚡ перевіряє кожну адресу окремо:
-  - STUN працює ⇔ прийшов кандидат `srflx`;
-  - TURN працює ⇔ прийшов кандидат `relay` у режимі «тільки relay».
+- **Static:** URLs (`stun:`, `turn:`, `turns:`), plus username/credential for TURN.
+- **Cloudflare TURN:** short-lived credentials are generated by the edge function from the `CF_TURN_*` secrets. It is disabled by default because Cloudflare requires a payment method.
+- Free TURN providers that only need an email: Metered, ExpressTURN (check their current limits). Add them as static servers.
+- The ⚡ button tests every URL separately:
+  - STUN works ⇔ a `srflx` candidate arrives.
+  - TURN works ⇔ a `relay` candidate arrives in relay-only mode.
 
-Чому TURN через TLS на 443 (`turns:…:443?transport=tcp`) важливий: у мережах, де ріжуть медіатрафік (UDP/WebRTC), він виглядає як звичайний HTTPS. Сам медіапотік WebRTC завжди зашифрований (DTLS-SRTP), незалежно від STUN/TURN.
+TURN over TLS on port 443 (`turns:…:443?transport=tcp`) matters most: on networks that throttle UDP/WebRTC media, it looks like regular HTTPS. WebRTC media itself is always encrypted (DTLS-SRTP), whatever the transport.
 
-## Діагностика `/diag`
+## ✅ CI
 
-Юзер натискає «Запустити», сторінка перевіряє:
-- інтернет;
-- Supabase REST і Realtime;
-- функцію `ice-servers`;
-- кожну адресу STUN/TURN;
-- тип NAT;
-- (за кнопкою) камеру й мікрофон.
+`.github/workflows/ci.yml` runs on push and PR to `master`: `pnpm install --frozen-lockfile` → oxlint → eslint → prettier --check → vue-tsc → build. Run the same locally with `pnpm run check`.
 
-Звіт автоматично зберігається в `diag_reports`: його видно в `/admin` → Звіти діагностики.
+## 🧯 Troubleshooting
 
----
-
-## CI
-
-`.github/workflows/ci.yml` запускається на push і PR у `master`: `pnpm install --frozen-lockfile` → oxlint → eslint → prettier --check → vue-tsc → build. Локально те саме робить `pnpm run check`.
-
-## Якщо щось не так
-
-| Симптом | Причина / що робити |
+| Symptom | Cause / fix |
 |---|---|
-| Біла сторінка | Немає `VITE_SUPABASE_*` у `.env.local` / Vercel env, або старий бандл → Ctrl+Shift+R |
-| `Function not found` локально | Не запущено `npx supabase functions serve` |
-| `functions serve` впав з `exit 137` | Docker вбив контейнер (найчастіше через пам'ять). Запустити знову |
-| Адмінки не видно після зміни ролі | Перелогінитись: роль у JWT оновлюється під час входу |
-| `db push` «Local database is up to date», а в хмарі нічого | Забув `--remote` |
-| Компоненти темні, фон світлий | `darkModeSelector` має бути `.app-dark`, клас стоїть на `<html>` в `index.html` |
+| Blank page | `VITE_SUPABASE_*` missing in `.env.local` / Vercel env, or a stale bundle (Ctrl+Shift+R) |
+| `Function not found` locally | `npx supabase functions serve` is not running |
+| `functions serve` died with `exit 137` | Docker killed the container (usually memory). Start it again |
+| Admin page missing after a role change | Sign in again: the role in the JWT is refreshed at sign-in |
+| `db push` says "Local database is up to date", cloud unchanged | You forgot `--remote` |
+| Dark components on a light background | `darkModeSelector` must be `.app-dark`; the class is set on `<html>` in `index.html` |
+
+## 🧠 Why I Built This
+
+I wanted to learn WebRTC hands-on: signaling, ICE, NAT traversal and TURN, without hiding them behind a library.
+And I needed a call app that actually works between two specific networks, one of which blocks the usual services.
