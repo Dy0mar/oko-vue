@@ -13,7 +13,7 @@ It is meant to work across restrictive networks, where well-known services like 
 
 ### 📞 Video calls: permanent rooms with Meet-style links (`/meet/abc-defg-hij`), mic/camera toggles, connection quality for both sides, stats panel (route, server, RTT, loss, bitrate)
 
-### 🔗 Simple flow for the guest: open the link → sign in → automatic network check (progress ring) → "Join"
+### 🔗 Simple flow for the guest: open the link → sign in → automatic network check (progress ring) → Meet-style preview → "Join"
 
 ### ⚙️ Admin panel: rooms, STUN/TURN servers with per-URL tests, diagnostics reports; in a call — switch the media route to "TURN only"
 
@@ -196,11 +196,11 @@ TURN over TLS on port 443 (`turns:…:443?transport=tcp`) matters most: on netwo
 1. The admin creates a room in **`/admin` → Зустрічі** and sends the link `https://…/meet/abc-defg-hij`.
 2. The guest opens it, signs in, and the page runs the network check automatically (unless this device already passed it for the current server list in the last 7 days). Result:
    - ✅ ready, ⚠️ may fail (STUN only and the NAT is symmetric, no TURN), ❌ cannot connect (no signaling or no working STUN/TURN at all).
-3. **"Join"** is an explicit click: it allows audio autoplay and is when the browser asks for camera/microphone.
+3. **Preview** (like Google Meet): your camera, mic/camera toggles (join with them already off), a mic level meter and **who is already in the room** (presence is watched without announcing you). "Join" is an explicit click, which also keeps the remote audio from being blocked by autoplay rules. The preview camera continues into the call, no second permission prompt.
 4. Peers find each other via Realtime presence and negotiate with MDN's *perfect negotiation* pattern. Media goes P2P when possible, otherwise via TURN.
 5. Each side shows two quality badges per participant: how **you** receive them and how **they** receive you.
 
-The admin skips the check and can enter any room from the list. In a call, ⚙️ switches the route to **TURN only** for everyone (ICE restart, no drop; without a working TURN the current route stays).
+The admin skips the check and gets the same preview. After signing in, the admin lands on the dashboard; the **OKO** logo always leads there. In a call, ⚙️ switches the route to **TURN only** for everyone (ICE restart, no drop; without a working TURN the current route stays).
 
 ## ✅ CI
 
