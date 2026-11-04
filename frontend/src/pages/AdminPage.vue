@@ -13,7 +13,7 @@ import IceServersPanel from "src/components/admin/IceServersPanel.vue"
 
 <template>
   <main class="mx-auto flex max-w-5xl flex-col gap-4 p-4">
-    <AppHeader title="Адмінка" />
+    <AppHeader />
     <Tabs value="rooms">
       <TabList>
         <Tab value="rooms">Зустрічі</Tab>

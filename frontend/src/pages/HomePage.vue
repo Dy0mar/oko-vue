@@ -8,7 +8,7 @@ import { parseRoomCode } from "src/api/rooms"
 import { useAuth } from "src/composables/useAuth"
 
 const router = useRouter()
-const { isAdmin, signOut } = useAuth()
+const { signOut } = useAuth()
 
 const link = ref("")
 const invalid = ref(false)
@@ -40,7 +40,6 @@ function open() {
       </form>
 
       <nav class="flex flex-wrap justify-center gap-2 text-sm">
-        <RouterLink v-if="isAdmin" to="/admin" class="nav-link">Адмінка</RouterLink>
         <RouterLink to="/diag" class="nav-link">Діагностика</RouterLink>
         <button type="button" class="nav-link" @click="signOut">Вийти</button>
       </nav>

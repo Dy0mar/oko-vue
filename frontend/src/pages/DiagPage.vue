@@ -62,7 +62,8 @@ const sections = computed(() => [
 
 <template>
   <main class="mx-auto flex max-w-4xl flex-col gap-4 p-4">
-    <AppHeader title="Діагностика мережі" />
+    <AppHeader />
+    <h1 class="text-xl font-semibold">Діагностика мережі</h1>
 
     <p class="text-muted-color">
       Перевіряє, чи доступні з цієї мережі сервіси OKO та сервери для з'єднання. Натисніть

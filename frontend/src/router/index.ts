@@ -59,6 +59,8 @@ router.beforeEach(async (to) => {
   }
   if (to.meta.requiresAdmin && !auth.isAdmin.value) return "/"
   if (to.meta.guestOnly && signedIn) return "/"
+  // The admin's home is the dashboard.
+  if (to.name === "home" && auth.isAdmin.value) return { name: "admin" }
 })
 
 // Session ended while on a protected page (sign-out, other tab, refresh token expired).
