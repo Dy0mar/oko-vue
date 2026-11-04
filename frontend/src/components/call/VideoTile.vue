@@ -42,7 +42,7 @@ const initial = computed(() => props.label.trim().charAt(0).toUpperCase() || "?"
     <div class="glass-solid absolute bottom-3 left-3 flex items-center gap-2 px-2.5 py-1 text-sm">
       <i
         v-if="micOn === false"
-        class="pi pi-microphone-slash text-red-400"
+        class="pi pi-microphone icon-off text-red-400"
         title="мікрофон вимкнено"
       />
       <span class="max-w-48 truncate">{{ label }}</span>

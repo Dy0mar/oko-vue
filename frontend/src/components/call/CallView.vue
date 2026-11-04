@@ -222,7 +222,7 @@ function endResize() {
       aria-label="Керування дзвінком"
     >
       <Button
-        :icon="media.micOn.value ? 'pi pi-microphone' : 'pi pi-microphone-slash'"
+        :icon="media.micOn.value ? 'pi pi-microphone' : 'pi pi-microphone icon-off'"
         :severity="media.micOn.value ? 'secondary' : 'danger'"
         rounded
         :aria-label="media.micOn.value ? 'Вимкнути мікрофон' : 'Увімкнути мікрофон'"
@@ -231,7 +231,7 @@ function endResize() {
         @click="media.toggleMic()"
       />
       <Button
-        :icon="media.camOn.value ? 'pi pi-video' : 'pi pi-eye-slash'"
+        :icon="media.camOn.value ? 'pi pi-video' : 'pi pi-video icon-off'"
         :severity="media.camOn.value ? 'secondary' : 'danger'"
         rounded
         :aria-label="media.camOn.value ? 'Вимкнути камеру' : 'Увімкнути камеру'"

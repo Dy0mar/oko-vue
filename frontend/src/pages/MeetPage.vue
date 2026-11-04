@@ -180,7 +180,7 @@ function onLeft(reason: "left" | "full" | "error", text?: string) {
         />
         <div class="flex items-center justify-center gap-3">
           <Button
-            :icon="media.micOn.value ? 'pi pi-microphone' : 'pi pi-microphone-slash'"
+            :icon="media.micOn.value ? 'pi pi-microphone' : 'pi pi-microphone icon-off'"
             :severity="media.micOn.value ? 'secondary' : 'danger'"
             rounded
             :aria-label="media.micOn.value ? 'Вимкнути мікрофон' : 'Увімкнути мікрофон'"
@@ -189,7 +189,7 @@ function onLeft(reason: "left" | "full" | "error", text?: string) {
             @click="toggleMic"
           />
           <Button
-            :icon="media.camOn.value ? 'pi pi-video' : 'pi pi-eye-slash'"
+            :icon="media.camOn.value ? 'pi pi-video' : 'pi pi-video icon-off'"
             :severity="media.camOn.value ? 'secondary' : 'danger'"
             rounded
             :aria-label="media.camOn.value ? 'Вимкнути камеру' : 'Увімкнути камеру'"

@@ -38,6 +38,24 @@
     @apply rounded-2xl border border-white/10 bg-black/55 shadow-xl;
   }
 
+  /* "Off" variant of any PrimeIcon (primeicons has no microphone-slash / video-slash):
+     the glyph is drawn by ::before, the slash by ::after. */
+  .icon-off {
+    position: relative;
+    display: inline-block;
+  }
+  .icon-off::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: -15%;
+    width: 2px;
+    height: 130%;
+    border-radius: 1px;
+    background: currentColor;
+    transform: translateX(-50%) rotate(-45deg);
+  }
+
   /* Diagnostics result tables */
   .diag-row > td {
     @apply border-b border-surface py-1.5 pr-2 align-top wrap-anywhere;
