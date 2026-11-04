@@ -13,6 +13,9 @@ const { user, isAdmin, signOut } = useAuth()
     <div class="flex flex-wrap items-center gap-4">
       <h1 class="text-2xl font-semibold">{{ title }}</h1>
       <nav class="flex gap-1 text-sm">
+        <RouterLink to="/" class="nav-link" exact-active-class="nav-link-active"
+          >Головна</RouterLink
+        >
         <RouterLink to="/diag" class="nav-link" active-class="nav-link-active">
           Діагностика
         </RouterLink>

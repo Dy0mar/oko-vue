@@ -15,7 +15,18 @@ declare module "vue-router" {
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: "/", redirect: "/diag" },
+    {
+      path: "/",
+      name: "home",
+      component: () => import("src/pages/HomePage.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/meet/:code",
+      name: "meet",
+      component: () => import("src/pages/MeetPage.vue"),
+      meta: { requiresAuth: true },
+    },
     {
       path: "/login",
       name: "login",
