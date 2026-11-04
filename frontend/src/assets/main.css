@@ -10,8 +10,14 @@
     color-scheme: dark;
   }
   body {
-    background: var(--p-surface-950);
+    /* Static gradient, no animation and no background-attachment: fixed (both cost repaints on a weak laptop). */
+    background:
+      radial-gradient(1100px 600px at 0% -10%, rgb(16 185 129 / 0.16), transparent 60%),
+      radial-gradient(900px 600px at 105% 0%, rgb(99 102 241 / 0.16), transparent 60%),
+      radial-gradient(900px 700px at 50% 115%, rgb(14 165 233 / 0.12), transparent 60%),
+      var(--p-surface-950);
     color: var(--p-text-color);
+    min-height: 100dvh;
   }
 }
 
@@ -21,6 +27,15 @@
   }
   .nav-link-active {
     @apply bg-highlight;
+  }
+
+  /* Glass panel. Not for overlays on top of live video: backdrop blur over video re-renders every frame. */
+  .glass {
+    @apply rounded-3xl border border-white/10 bg-white/[0.04] shadow-2xl shadow-black/40 backdrop-blur-xl;
+  }
+  /* Overlay on video: translucent, no blur. */
+  .glass-solid {
+    @apply rounded-2xl border border-white/10 bg-black/55 shadow-xl;
   }
 
   /* Diagnostics result tables */

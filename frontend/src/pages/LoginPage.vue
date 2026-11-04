@@ -32,11 +32,8 @@ async function submit() {
 </script>
 
 <template>
-  <main class="flex min-h-screen items-center justify-center p-4">
-    <form
-      class="flex w-full max-w-sm flex-col gap-4 rounded-2xl border border-surface bg-surface-900 p-6"
-      @submit.prevent="submit"
-    >
+  <main class="grid min-h-dvh place-items-center p-4">
+    <form class="glass flex w-full max-w-sm flex-col gap-4 p-6" @submit.prevent="submit">
       <h1 class="text-2xl font-semibold">OKO</h1>
 
       <div class="flex flex-col gap-2">
