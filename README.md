@@ -11,9 +11,11 @@ It is meant to work across restrictive networks, where well-known services like 
 
 ### 🩺 Network diagnostics: Supabase, every STUN/TURN URL, NAT type, camera and microphone. Reports are sent to the admin automatically
 
-### ⚙️ Admin panel: manage STUN/TURN servers and test each one, review diagnostics reports
+### 📞 Video calls: permanent rooms with Meet-style links (`/meet/abc-defg-hij`), mic/camera toggles, connection quality for both sides, stats panel (route, server, RTT, loss, bitrate)
 
-### 📞 Video calls (in progress): rooms with Meet-style links, audio/video, connection stats
+### 🔗 Simple flow for the guest: open the link → sign in → automatic network check (progress ring) → "Join"
+
+### ⚙️ Admin panel: rooms, STUN/TURN servers with per-URL tests, diagnostics reports; in a call — switch the media route to "TURN only"
 
 ## 🛠 Tech Stack
 
@@ -43,9 +45,11 @@ It is meant to work across restrictive networks, where well-known services like 
 frontend/
   src/api/                     Supabase client and queries
   src/composables/useAuth.ts   session state, isAdmin, signIn/signOut
+  src/composables/useNetworkCheck.ts  network check shared by /diag and /meet
+  src/composables/call/        WebRTC core: signaling (Realtime), peer (perfect negotiation), media, stats
   src/router/                  routes + guard (requiresAuth / requiresAdmin / guestOnly)
-  src/pages/                   Login, Diag, Admin
-  src/components/              AppHeader, admin/*
+  src/pages/                   Home, Login, Meet, Diag, Admin
+  src/components/              AppHeader, ProgressRing, call/*, admin/*
   src/diagnostics/             ICE / HTTP / media probes
   vercel.json                  SPA rewrite + security headers
 supabase/
@@ -62,6 +66,8 @@ Imports use the `src/...` alias (not `@/...`), so it is obvious they are not thi
 - `isAdmin` on the frontend only hides UI. Real enforcement is RLS (`public.is_admin()`) plus JWT verification in the edge function.
 - `ice_servers` is admin-only. Participants get a ready list from the `ice-servers` function.
 - `diag_reports`: users insert their own report (email is taken from the JWT). Only the admin can read or delete reports.
+- `rooms`: any signed-in user can open a room by its code; only the admin creates and deletes rooms.
+- Call signaling runs on **private** Realtime channels `room:<code>`: RLS on `realtime.messages` lets only signed-in users in, and only for an existing room.
 - `VITE_*` variables are shipped to the browser. Only put the URL and the **publishable** key there, never the secret / service_role key.
 
 ## 🚀 Local Development
@@ -184,6 +190,17 @@ Servers are managed in **`/admin` → STUN/TURN servers**:
   - TURN works ⇔ a `relay` candidate arrives in relay-only mode.
 
 TURN over TLS on port 443 (`turns:…:443?transport=tcp`) matters most: on networks that throttle UDP/WebRTC media, it looks like regular HTTPS. WebRTC media itself is always encrypted (DTLS-SRTP), whatever the transport.
+
+## 📞 How a call works
+
+1. The admin creates a room in **`/admin` → Зустрічі** and sends the link `https://…/meet/abc-defg-hij`.
+2. The guest opens it, signs in, and the page runs the network check automatically (unless this device already passed it for the current server list in the last 7 days). Result:
+   - ✅ ready, ⚠️ may fail (STUN only and the NAT is symmetric, no TURN), ❌ cannot connect (no signaling or no working STUN/TURN at all).
+3. **"Join"** is an explicit click: it allows audio autoplay and is when the browser asks for camera/microphone.
+4. Peers find each other via Realtime presence and negotiate with MDN's *perfect negotiation* pattern. Media goes P2P when possible, otherwise via TURN.
+5. Each side shows two quality badges per participant: how **you** receive them and how **they** receive you.
+
+The admin skips the check and can enter any room from the list. In a call, ⚙️ switches the route to **TURN only** for everyone (ICE restart, no drop; without a working TURN the current route stays).
 
 ## ✅ CI
 
