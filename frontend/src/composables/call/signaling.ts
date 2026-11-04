@@ -36,7 +36,13 @@ const UNKNOWN_PEER_HOLD_MS = 5000
  * Only signed-in users can join it, and only for an existing room (RLS on realtime.messages).
  * Broadcast carries offers/answers/candidates; presence tells who is in the room.
  */
-export function createSignaling(code: string, self: PeerInfo, handlers: Handlers) {
+/** `watchOnly`: see who is in the room (lobby) without appearing there yourself. */
+export function createSignaling(
+  code: string,
+  self: PeerInfo,
+  handlers: Handlers,
+  { watchOnly = false }: { watchOnly?: boolean } = {},
+) {
   let channel: RealtimeChannel | null = null
   let known = new Set<string>()
   let held: { msg: SignalMessage; at: number }[] = []
@@ -95,7 +101,7 @@ export function createSignaling(code: string, self: PeerInfo, handlers: Handlers
       })
       .subscribe(async (status, err) => {
         if (status === "SUBSCRIBED") {
-          await channel!.track(self)
+          if (!watchOnly) await channel!.track(self)
           handlers.onStatus("joined")
         } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
           handlers.onStatus("error", err?.message ?? status)

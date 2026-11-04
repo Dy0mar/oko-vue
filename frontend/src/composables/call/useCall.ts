@@ -1,7 +1,7 @@
 import { computed, markRaw, onBeforeUnmount, reactive, ref, watch } from "vue"
 
 import { useAuth } from "src/composables/useAuth"
-import { useLocalMedia } from "src/composables/call/useLocalMedia"
+import type { LocalMedia } from "src/composables/call/useLocalMedia"
 import { createPeer, type Peer } from "src/composables/call/peer"
 import { createSignaling, type PeerInfo, type SignalMessage } from "src/composables/call/signaling"
 import { createStatsSampler, type ConnStats, type Quality } from "src/composables/call/stats"
@@ -27,9 +27,9 @@ export interface RemoteView {
   theirQuality: Quality
 }
 
-export function useCall(code: string, iceServers: RTCIceServer[]) {
+/** `media` is owned by the meeting page: the preview camera continues into the call. */
+export function useCall(code: string, iceServers: RTCIceServer[], media: LocalMedia) {
   const auth = useAuth()
-  const media = useLocalMedia()
 
   const status = ref<CallStatus>("idle")
   const error = ref<string | null>(null)
@@ -180,7 +180,7 @@ export function useCall(code: string, iceServers: RTCIceServer[]) {
     if (status.value === "joining" || status.value === "in-call") return
     status.value = "joining"
     error.value = null
-    await media.start()
+    if (!media.stream.value) await media.start()
     await signaling.join()
     statsTimer = setInterval(() => void collectStats(), STATS_INTERVAL_MS)
   }

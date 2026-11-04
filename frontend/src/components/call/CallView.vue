@@ -5,17 +5,18 @@ import SelectButton from "primevue/selectbutton"
 
 import QualityBadge from "src/components/call/QualityBadge.vue"
 import VideoTile from "src/components/call/VideoTile.vue"
-import { roomLink } from "src/api/rooms"
 import { useAuth } from "src/composables/useAuth"
 import { useCall, type RemoteView } from "src/composables/call/useCall"
 import type { ConnStats } from "src/composables/call/stats"
+import type { LocalMedia } from "src/composables/call/useLocalMedia"
 
-const props = defineProps<{ code: string; iceServers: RTCIceServer[] }>()
+const props = defineProps<{ code: string; iceServers: RTCIceServer[]; media: LocalMedia }>()
 const emit = defineEmits<{ left: [reason: "left" | "full" | "error", message?: string] }>()
 
 const { isAdmin, user } = useAuth()
-const call = useCall(props.code, props.iceServers)
-const { media, remotes, status, policy } = call
+const call = useCall(props.code, props.iceServers, props.media)
+const { remotes, status, policy } = call
+const media = props.media
 
 const showStats = ref(false)
 const showSettings = ref(false)
@@ -54,11 +55,48 @@ const ROUTE_TEXT: Record<NonNullable<ConnStats["route"]>, string> = {
 const name = (r: RemoteView) => r.email?.split("@")[0] ?? "Співрозмовник"
 const gridClass = computed(() => (remotes.value.length > 1 ? "md:grid-cols-2" : "grid-cols-1"))
 
-const copied = ref(false)
-async function copyLink() {
-  await navigator.clipboard.writeText(roomLink(props.code))
-  copied.value = true
-  setTimeout(() => (copied.value = false), 2000)
+// --- self view: resizable like in Google Meet (drag the top-left corner) -------------
+const SELF_WIDTH_KEY = "oko:self-view-width"
+const SELF_MIN = 140
+const selfMax = () => Math.max(SELF_MIN, Math.round(window.innerWidth * 0.6))
+
+function initialSelfWidth(): number {
+  let saved = NaN
+  try {
+    saved = Number(localStorage.getItem(SELF_WIDTH_KEY))
+  } catch {
+    // storage unavailable
+  }
+  const fallback = window.innerWidth < 640 ? 160 : 240
+  return Math.min(selfMax(), Math.max(SELF_MIN, saved || fallback))
+}
+
+const selfWidth = ref(initialSelfWidth())
+let drag: { x: number; y: number; width: number } | null = null
+
+function startResize(e: PointerEvent) {
+  drag = { x: e.clientX, y: e.clientY, width: selfWidth.value }
+  ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+}
+
+function onResize(e: PointerEvent) {
+  if (!drag) return
+  // Anchored bottom-right: moving the handle up/left grows the tile.
+  const dx = drag.x - e.clientX
+  const dy = ((drag.y - e.clientY) * 16) / 9
+  // Follow the axis the pointer moved along the most (grow and shrink both work).
+  const delta = Math.abs(dx) >= Math.abs(dy) ? dx : dy
+  selfWidth.value = Math.min(selfMax(), Math.max(SELF_MIN, Math.round(drag.width + delta)))
+}
+
+function endResize() {
+  if (!drag) return
+  drag = null
+  try {
+    localStorage.setItem(SELF_WIDTH_KEY, String(selfWidth.value))
+  } catch {
+    // storage unavailable
+  }
 }
 </script>
 
@@ -70,14 +108,6 @@ async function copyLink() {
         <div class="flex flex-col items-center gap-3">
           <i class="pi pi-users text-4xl text-white/50" />
           <p class="text-lg">Очікуємо співрозмовника…</p>
-          <Button
-            v-if="isAdmin"
-            :label="copied ? 'Скопійовано' : 'Скопіювати посилання'"
-            icon="pi pi-link"
-            severity="secondary"
-            size="small"
-            @click="copyLink"
-          />
         </div>
       </div>
 
@@ -105,7 +135,10 @@ async function copyLink() {
     </section>
 
     <!-- Self view (picture-in-picture) -->
-    <div class="absolute right-6 bottom-24 z-[1] aspect-video w-40 shadow-2xl sm:w-60">
+    <div
+      class="absolute right-6 bottom-24 z-[1] aspect-video shadow-2xl"
+      :style="{ width: `${selfWidth}px` }"
+    >
       <VideoTile
         class="h-full"
         :stream="media.stream.value"
@@ -115,6 +148,18 @@ async function copyLink() {
         :cam-on="media.camOn.value"
         :mic-on="media.micOn.value"
       />
+      <!-- Resize handle -->
+      <div
+        class="absolute -top-1.5 -left-1.5 z-[2] grid size-6 cursor-nwse-resize touch-none place-items-center rounded-full border border-white/20 bg-black/70 text-white/80 hover:bg-black/90"
+        title="Змінити розмір"
+        aria-label="Змінити розмір свого відео"
+        @pointerdown.prevent="startResize"
+        @pointermove="onResize"
+        @pointerup="endResize"
+        @pointercancel="endResize"
+      >
+        <i class="pi pi-arrows-alt text-[10px]" />
+      </div>
     </div>
 
     <!-- Stats panel -->

@@ -20,7 +20,7 @@ export function useLocalMedia() {
   /** Non-fatal: e.g. "no camera" — the call still works with what is available. */
   const warning = ref<string | null>(null)
 
-  async function start(): Promise<void> {
+  async function start(prefer: { mic?: boolean; cam?: boolean } = {}): Promise<void> {
     const attempts: [MediaStreamConstraints, string | null][] = [
       [{ audio: AUDIO, video: VIDEO }, null],
       [{ audio: AUDIO }, "Камера недоступна — дзвінок лише зі звуком"],
@@ -33,6 +33,8 @@ export function useLocalMedia() {
         stream.value = markRaw(s)
         micOn.value = s.getAudioTracks().length > 0
         camOn.value = s.getVideoTracks().length > 0
+        if (prefer.mic === false) setEnabledOn(s, "audio", (micOn.value = false))
+        if (prefer.cam === false) setEnabledOn(s, "video", (camOn.value = false))
         warning.value = note
         return
       } catch (e) {
@@ -47,6 +49,12 @@ export function useLocalMedia() {
       lastError instanceof DOMException && lastError.name === "NotAllowedError"
         ? "Немає дозволу на камеру й мікрофон — ви бачите й чуєте співрозмовника, він вас — ні"
         : "Камера й мікрофон недоступні — ви лише бачите й чуєте співрозмовника"
+  }
+
+  function setEnabledOn(s: MediaStream, kind: "audio" | "video", enabled: boolean): void {
+    ;(kind === "audio" ? s.getAudioTracks() : s.getVideoTracks()).forEach(
+      (t) => (t.enabled = enabled),
+    )
   }
 
   function setEnabled(kind: "audio" | "video", enabled: boolean): void {
@@ -74,3 +82,5 @@ export function useLocalMedia() {
 
   return { stream, micOn, camOn, warning, start, toggleMic, toggleCam, stop }
 }
+
+export type LocalMedia = ReturnType<typeof useLocalMedia>
