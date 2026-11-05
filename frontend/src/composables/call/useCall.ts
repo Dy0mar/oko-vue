@@ -194,7 +194,10 @@ export function useCall(code: string, entries: IceServerEntry[], media: LocalMed
         break
       }
       case "media-route":
-        applyRoute(msg.data as MediaRoute)
+        // Only the admin switches routes. `isAdmin` comes from the sender's presence payload
+        // (client-reported), so this stops accidents and casual spoofing, not a determined
+        // whitelisted user — acceptable for a 2-person app.
+        if (view(msg.from)?.isAdmin) applyRoute(msg.data as MediaRoute)
         break
     }
   }

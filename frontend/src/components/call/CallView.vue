@@ -203,7 +203,7 @@ function endResize() {
     <!-- Admin settings -->
     <aside
       v-if="isAdmin && showSettings"
-      class="glass-solid absolute right-6 bottom-24 z-10 flex flex-col gap-3 p-4 text-sm"
+      class="glass-solid absolute bottom-40 left-6 z-10 flex flex-col gap-3 p-4 text-sm"
     >
       <p class="font-semibold">Маршрут медіа (для всіх у дзвінку)</p>
       <div class="flex flex-col gap-1" role="radiogroup" aria-label="Маршрут медіа">
