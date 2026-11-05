@@ -15,7 +15,7 @@ const emit = defineEmits<{ left: [reason: "left" | "full" | "error", message?: s
 
 const { isAdmin, user } = useAuth()
 const call = useCall(props.code, props.entries, props.media)
-const { remotes, status, route, turnServers } = call
+const { remotes, status, route, turnServers, screen, sharing } = call
 const media = props.media
 
 const showStats = ref(false)
@@ -127,11 +127,13 @@ function endResize() {
         <VideoTile
           class="h-full"
           :stream="r.stream"
-          :label="name(r)"
-          :cam-on="r.camOn"
+          :label="r.sharing ? `${name(r)} · екран` : name(r)"
+          :cam-on="r.camOn || r.sharing"
           :mic-on="r.micOn"
+          :contain="r.sharing"
         >
           <template #badge>
+            <i v-if="r.sharing" class="pi pi-desktop text-sky-300" title="демонструє екран" />
             <!-- how WE receive them / how THEY receive us -->
             <QualityBadge :quality="r.stats?.quality ?? 'unknown'" label="у вас" />
             <QualityBadge :quality="r.theirQuality" :label="`у ${name(r)}`" />
@@ -151,13 +153,15 @@ function endResize() {
       class="absolute right-6 bottom-24 z-[1] aspect-video shadow-2xl"
       :style="{ width: `${selfWidth}px` }"
     >
+      <!-- While sharing, show what the others see: the screen, not mirrored. -->
       <VideoTile
         class="h-full"
-        :stream="media.stream.value"
-        :label="user?.email?.split('@')[0] ?? 'Ви'"
+        :stream="sharing ? screen : media.stream.value"
+        :label="(user?.email?.split('@')[0] ?? 'Ви') + (sharing ? ' · ваш екран' : '')"
         muted
-        mirrored
-        :cam-on="media.camOn.value"
+        :mirrored="!sharing"
+        :contain="sharing"
+        :cam-on="sharing || media.camOn.value"
         :mic-on="media.micOn.value"
       />
       <!-- Resize handle -->
@@ -260,6 +264,16 @@ function endResize() {
         :title="media.camOn.value ? 'Вимкнути камеру' : 'Увімкнути камеру'"
         :disabled="!media.stream.value?.getVideoTracks().length"
         @click="media.toggleCam()"
+      />
+      <Button
+        v-if="call.canShareScreen"
+        icon="pi pi-desktop"
+        :severity="sharing ? 'info' : 'secondary'"
+        rounded
+        :aria-label="sharing ? 'Зупинити показ екрана' : 'Показати екран'"
+        :title="sharing ? 'Зупинити показ екрана' : 'Показати екран'"
+        :aria-pressed="sharing"
+        @click="call.toggleScreenShare()"
       />
       <Button
         icon="pi pi-chart-bar"

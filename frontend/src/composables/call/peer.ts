@@ -31,11 +31,19 @@ export function createPeer(opts: PeerOptions) {
 
   // --- media ---------------------------------------------------------------
   const local = opts.localStream
+  /** Our outgoing video slot: camera or, while sharing, the screen. */
+  let videoTransceiver: RTCRtpTransceiver | undefined
   for (const kind of ["audio", "video"] as const) {
     const track = kind === "audio" ? local?.getAudioTracks()[0] : local?.getVideoTracks()[0]
-    if (track && local) pc.addTrack(track, local)
-    // No local device: still ask to RECEIVE this kind from the other side.
-    else pc.addTransceiver(kind, { direction: "recvonly" })
+    let transceiver: RTCRtpTransceiver | undefined
+    if (track && local) {
+      const sender = pc.addTrack(track, local)
+      transceiver = pc.getTransceivers().find((t) => t.sender === sender)
+    } else {
+      // No local device: still ask to RECEIVE this kind from the other side.
+      transceiver = pc.addTransceiver(kind, { direction: "recvonly" })
+    }
+    if (kind === "video") videoTransceiver = transceiver
   }
 
   pc.ontrack = ({ track, streams }) => {
@@ -114,5 +122,25 @@ export function createPeer(opts: PeerOptions) {
     pc.close()
   }
 
-  return { pc, remoteId: opts.remoteId, handle, close }
+  /**
+   * Swap what we send as video (camera ↔ screen) without renegotiation.
+   * Only a slot created as receive-only (no camera) has to start sending: that one renegotiates,
+   * which perfect negotiation handles.
+   */
+  async function setVideoTrack(track: MediaStreamTrack | null, isScreen = false): Promise<void> {
+    const t = videoTransceiver
+    if (!t || pc.signalingState === "closed") return
+    if (track && t.direction === "recvonly") t.direction = "sendrecv"
+    await t.sender.replaceTrack(track)
+    try {
+      // Screen: keep text sharp — drop frames rather than resolution on a weak link.
+      const params = t.sender.getParameters()
+      params.degradationPreference = isScreen ? "maintain-resolution" : "balanced"
+      await t.sender.setParameters(params)
+    } catch {
+      // not negotiated yet / not supported — the default is fine
+    }
+  }
+
+  return { pc, remoteId: opts.remoteId, handle, setVideoTrack, close }
 }

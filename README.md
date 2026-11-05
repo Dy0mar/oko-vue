@@ -11,7 +11,7 @@ It is meant to work across restrictive networks, where well-known services like 
 
 ### 🩺 Network diagnostics: Supabase, every STUN/TURN URL, NAT type, camera and microphone. Reports are sent to the admin automatically
 
-### 📞 Video calls: permanent rooms with Meet-style links (`/meet/abc-defg-hij`), mic/camera toggles, connection quality for both sides, stats panel (route, server, RTT, loss, bitrate)
+### 📞 Video calls: permanent rooms with Meet-style links (`/meet/abc-defg-hij`), mic/camera toggles, screen sharing, connection quality for both sides, stats panel (route, server, RTT, loss, bitrate)
 
 ### 🔗 Simple flow for the guest: open the link → sign in → automatic network check (progress ring) → Meet-style preview → "Join"
 

@@ -1,4 +1,4 @@
-import { computed, markRaw, onBeforeUnmount, reactive, ref, watch } from "vue"
+import { computed, markRaw, onBeforeUnmount, reactive, ref, shallowRef, watch } from "vue"
 
 import { useAuth } from "src/composables/useAuth"
 import type { LocalMedia } from "src/composables/call/useLocalMedia"
@@ -22,6 +22,8 @@ export interface RemoteView {
   state: RTCPeerConnectionState
   micOn: boolean
   camOn: boolean
+  /** They are showing their screen instead of the camera. */
+  sharing: boolean
   /** How WE receive them. */
   stats: ConnStats | null
   /** How THEY receive us (reported by them). */
@@ -84,6 +86,51 @@ export function useCall(code: string, entries: IceServerEntry[], media: LocalMed
   }
   const view = (peerId: string) => remotes.value.find((r) => r.peerId === peerId)
 
+  // --- screen sharing ------------------------------------------------------------
+  const screen = shallowRef<MediaStream | null>(null)
+  const sharing = computed(() => screen.value !== null)
+  /** Mobile browsers have no getDisplayMedia. */
+  const canShareScreen = typeof navigator.mediaDevices?.getDisplayMedia === "function"
+
+  const mediaState = () => ({
+    micOn: media.micOn.value,
+    camOn: media.camOn.value,
+    sharing: sharing.value,
+  })
+
+  async function startScreenShare(): Promise<void> {
+    if (screen.value || !canShareScreen) return
+    let s: MediaStream
+    try {
+      s = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: { ideal: 15, max: 30 } },
+        audio: false,
+      })
+    } catch {
+      return // the user cancelled the picker
+    }
+    const track = s.getVideoTracks()[0]
+    if (!track) return
+    track.contentHint = "detail"
+    // The browser's own "Stop sharing" button.
+    track.onended = () => void stopScreenShare()
+    screen.value = markRaw(s)
+    await Promise.all([...peers.values()].map(({ peer }) => peer.setVideoTrack(track, true)))
+  }
+
+  async function stopScreenShare(): Promise<void> {
+    const s = screen.value
+    if (!s) return
+    screen.value = null
+    s.getTracks().forEach((t) => t.stop())
+    const camera = media.stream.value?.getVideoTracks()[0] ?? null
+    await Promise.all([...peers.values()].map(({ peer }) => peer.setVideoTrack(camera)))
+  }
+
+  function toggleScreenShare(): Promise<void> {
+    return screen.value ? stopScreenShare() : startScreenShare()
+  }
+
   const signaling = createSignaling(code, self, {
     onSignal: handleSignal,
     onPeers: syncPeers,
@@ -107,13 +154,14 @@ export function useCall(code: string, entries: IceServerEntry[], media: LocalMed
       state: "new",
       micOn: true,
       camOn: true,
+      sharing: false,
       stats: null,
       theirQuality: "unknown",
     })
     remotes.value = [...remotes.value, remote]
     connect(remote, new Set())
     // Tell the newcomer our mic/cam state.
-    signaling.send(info.peerId, "media", { micOn: media.micOn.value, camOn: media.camOn.value })
+    signaling.send(info.peerId, "media", mediaState())
   }
 
   /** (Re)creates the RTCPeerConnection for a remote participant, keeping its view. */
@@ -129,6 +177,9 @@ export function useCall(code: string, entries: IceServerEntry[], media: LocalMed
       onStream: (stream) => (remote.stream = markRaw(stream)),
       onState: (state) => (remote.state = state),
     })
+    // Joined (or reconnected) while we share: send the screen right away.
+    const screenTrack = screen.value?.getVideoTracks()[0]
+    if (screenTrack) void peer.setVideoTrack(screenTrack, true)
     peers.set(remote.peerId, {
       peer,
       sample: createStatsSampler(peer.pc),
@@ -185,7 +236,7 @@ export function useCall(code: string, entries: IceServerEntry[], media: LocalMed
         break
       case "media": {
         const v = view(msg.from)
-        if (v) Object.assign(v, msg.data as { micOn: boolean; camOn: boolean })
+        if (v) Object.assign(v, msg.data as ReturnType<typeof mediaState>)
         break
       }
       case "quality": {
@@ -253,9 +304,7 @@ export function useCall(code: string, entries: IceServerEntry[], media: LocalMed
   }
 
   // --- lifecycle -----------------------------------------------------------------
-  watch([media.micOn, media.camOn], ([micOn, camOn]) =>
-    signaling.send("*", "media", { micOn, camOn }),
-  )
+  watch([media.micOn, media.camOn, sharing], () => signaling.send("*", "media", mediaState()))
 
   async function join(): Promise<void> {
     if (status.value === "joining" || status.value === "in-call") return
@@ -268,6 +317,7 @@ export function useCall(code: string, entries: IceServerEntry[], media: LocalMed
 
   async function leave(reason: CallStatus = "left"): Promise<void> {
     clearInterval(statsTimer)
+    await stopScreenShare()
     for (const id of peers.keys()) dropPeer(id)
     await signaling.leave()
     media.stop()
@@ -278,5 +328,20 @@ export function useCall(code: string, entries: IceServerEntry[], media: LocalMed
 
   const anyConnected = computed(() => remotes.value.some((r) => r.state === "connected"))
 
-  return { status, error, media, remotes, route, turnServers, anyConnected, join, leave, setRoute }
+  return {
+    status,
+    error,
+    media,
+    remotes,
+    route,
+    turnServers,
+    anyConnected,
+    screen,
+    sharing,
+    canShareScreen,
+    toggleScreenShare,
+    join,
+    leave,
+    setRoute,
+  }
 }

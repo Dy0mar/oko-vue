@@ -9,6 +9,8 @@ const props = defineProps<{
   mirrored?: boolean
   camOn?: boolean
   micOn?: boolean
+  /** Screen content: show it whole instead of cropping to fill the tile. */
+  contain?: boolean
 }>()
 
 const video = ref<HTMLVideoElement | null>(null)
@@ -29,8 +31,11 @@ const initial = computed(() => props.label.trim().charAt(0).toUpperCase() || "?"
       autoplay
       playsinline
       :muted="muted"
-      class="h-full w-full object-cover"
-      :class="{ '-scale-x-100': mirrored, invisible: !showVideo }"
+      class="h-full w-full"
+      :class="[
+        contain ? 'object-contain' : 'object-cover',
+        { '-scale-x-100': mirrored, invisible: !showVideo },
+      ]"
     />
     <div v-if="!showVideo" class="absolute inset-0 grid place-items-center">
       <div
