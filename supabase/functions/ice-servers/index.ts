@@ -1,20 +1,24 @@
 // GET/POST /functions/v1/ice-servers → ICE servers for the signed-in user.
 //
-// Reads enabled rows from `ice_servers` (admin-only table, read here with the admin client)
-// and, for `cloudflare` rows, generates short-lived TURN credentials via the Cloudflare API.
-// The Cloudflare token never leaves the server.
+// Reads enabled rows from `ice_servers` (admin-only table, read here with the admin client).
+// Static rows are returned as stored. Provider rows get short-lived TURN credentials from the
+// provider's API on every request — provider keys never leave the server.
 //
-// Secrets (optional; without them Cloudflare rows are reported as skipped):
-//   supabase secrets set CF_TURN_KEY_ID=... CF_TURN_API_TOKEN=...
-// Locally: put them into supabase/functions/.env
+// Secrets (optional; a provider without its secrets is reported as an error for its row only):
+//   cloudflare: CF_TURN_KEY_ID, CF_TURN_API_TOKEN
+//   metered:    METERED_APP_NAME (the "<name>" of <name>.metered.live), METERED_API_KEY
+//   turnix:     TURNIX_API_TOKEN
+//   supabase secrets set NAME=value ...      (locally: supabase/functions/.env)
 
 import "@supabase/functions-js/edge-runtime.d.ts"
 import { withSupabase } from "@supabase/server"
 
+type Kind = "static" | "cloudflare" | "metered" | "turnix"
+
 interface IceServerRow {
   id: string
   label: string
-  kind: "static" | "cloudflare"
+  kind: Kind
   urls: string[]
   username: string | null
   credential: string | null
@@ -23,17 +27,26 @@ interface IceServerRow {
 interface ServerEntry {
   id: string
   label: string
-  kind: IceServerRow["kind"]
+  kind: Kind
   iceServers: RTCIceServer[]
-  /** Why the server is unavailable (e.g. Cloudflare secrets missing). */
+  /** Why the server is unavailable (e.g. provider secrets missing). */
   error?: string
 }
 
-/** Credentials lifetime. Must outlive the longest call; the client can refresh earlier. */
-const CF_TTL_SECONDS = 4 * 60 * 60
+/** Credentials lifetime. Must outlive the longest call. */
+const TTL_SECONDS = 4 * 60 * 60
+const PROVIDER_TIMEOUT_MS = 5000
+
+type Provider = (req: Request) => Promise<RTCIceServer[]>
+
+const PROVIDERS: Record<Exclude<Kind, "static">, Provider> = {
+  cloudflare: cloudflareIceServers,
+  metered: meteredIceServers,
+  turnix: turnixIceServers,
+}
 
 export default {
-  fetch: withSupabase({ auth: "user" }, async (_req, ctx) => {
+  fetch: withSupabase({ auth: "user" }, async (req, ctx) => {
     const { data, error } = await ctx.supabaseAdmin
       .from("ice_servers")
       .select("id, label, kind, urls, username, credential")
@@ -45,12 +58,12 @@ export default {
       return Response.json({ error: "failed to load ice servers" }, { status: 500 })
     }
 
-    const servers = await Promise.all((data as IceServerRow[]).map(toEntry))
-    return Response.json({ servers, ttl: CF_TTL_SECONDS })
+    const servers = await Promise.all((data as IceServerRow[]).map((row) => toEntry(row, req)))
+    return Response.json({ servers, ttl: TTL_SECONDS })
   }),
 }
 
-async function toEntry(row: IceServerRow): Promise<ServerEntry> {
+async function toEntry(row: IceServerRow, req: Request): Promise<ServerEntry> {
   const base = { id: row.id, label: row.label, kind: row.kind }
   if (row.kind === "static") {
     const server: RTCIceServer = { urls: row.urls }
@@ -59,32 +72,69 @@ async function toEntry(row: IceServerRow): Promise<ServerEntry> {
     return { ...base, iceServers: [server] }
   }
   try {
-    return { ...base, iceServers: await cloudflareIceServers() }
+    return { ...base, iceServers: cleanUrls(await PROVIDERS[row.kind](req)) }
   } catch (e) {
-    console.error("cloudflare turn failed", e)
+    console.error(`${row.kind} turn failed`, e)
     return { ...base, iceServers: [], error: e instanceof Error ? e.message : String(e) }
   }
 }
 
-async function cloudflareIceServers(): Promise<RTCIceServer[]> {
-  const keyId = Deno.env.get("CF_TURN_KEY_ID")
-  const token = Deno.env.get("CF_TURN_API_TOKEN")
-  if (!keyId || !token) throw new Error("CF_TURN_KEY_ID / CF_TURN_API_TOKEN are not set")
+function secret(...names: string[]): string[] {
+  const values = names.map((n) => Deno.env.get(n) ?? "")
+  if (values.some((v) => !v)) throw new Error(`${names.join(" / ")} not set`)
+  return values
+}
 
+async function json<T>(res: Response, provider: string): Promise<T> {
+  if (!res.ok) throw new Error(`${provider} API ${res.status}`)
+  return (await res.json()) as T
+}
+
+// https://developers.cloudflare.com/realtime/turn/generate-credentials/
+async function cloudflareIceServers(): Promise<RTCIceServer[]> {
+  const [keyId, token] = secret("CF_TURN_KEY_ID", "CF_TURN_API_TOKEN")
   const res = await fetch(
     `https://rtc.live.cloudflare.com/v1/turn/keys/${keyId}/credentials/generate-ice-servers`,
     {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ ttl: CF_TTL_SECONDS }),
-      signal: AbortSignal.timeout(5000),
+      body: JSON.stringify({ ttl: TTL_SECONDS }),
+      signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
     },
   )
-  if (!res.ok) throw new Error(`Cloudflare API ${res.status}`)
+  return (await json<{ iceServers: RTCIceServer[] }>(res, "Cloudflare")).iceServers
+}
 
-  const body = (await res.json()) as { iceServers: RTCIceServer[] }
-  // Port 53 is blocked by browsers (per Cloudflare docs) — drop it to avoid a useless timeout.
-  return body.iceServers
+// https://www.metered.ca/tools/openrelay/ — returns the iceServers array itself.
+async function meteredIceServers(): Promise<RTCIceServer[]> {
+  const [app, apiKey] = secret("METERED_APP_NAME", "METERED_API_KEY")
+  const url = `https://${encodeURIComponent(app)}.metered.live/api/v1/turn/credentials?apiKey=${encodeURIComponent(apiKey)}`
+  const res = await fetch(url, { signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) })
+  return await json<RTCIceServer[]>(res, "Metered")
+}
+
+// https://turnix.io/docs/api-reference/credentials
+async function turnixIceServers(req: Request): Promise<RTCIceServer[]> {
+  const [token] = secret("TURNIX_API_TOKEN")
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+  }
+  // Lets Turnix pick the region nearest to the participant, not to the edge function.
+  const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+  if (clientIp) headers["X-TURN-CLIENT-IP"] = clientIp
+  const res = await fetch("https://turnix.io/api/v1/credentials/ice", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ ttl: TTL_SECONDS }),
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
+  })
+  return (await json<{ iceServers: RTCIceServer[] }>(res, "Turnix")).iceServers
+}
+
+/** Port 53 is blocked by browsers (Cloudflare docs) — drop it to avoid a useless timeout. */
+function cleanUrls(servers: RTCIceServer[]): RTCIceServer[] {
+  return servers
     .map((s) => ({ ...s, urls: toArray(s.urls).filter((u) => !/:53(\?|$)/.test(u)) }))
     .filter((s) => s.urls.length > 0)
 }
