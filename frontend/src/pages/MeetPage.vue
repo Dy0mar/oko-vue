@@ -7,7 +7,7 @@ import ProgressRing from "src/components/ProgressRing.vue"
 import CallView from "src/components/call/CallView.vue"
 import VideoTile from "src/components/call/VideoTile.vue"
 import { getRoom, ROOM_CODE_RE, type Room } from "src/api/rooms"
-import { fetchIceServers, toRtcIceServers, type IceServerEntry } from "src/api/iceServers"
+import { fetchIceServers, type IceServerEntry } from "src/api/iceServers"
 import { useAuth } from "src/composables/useAuth"
 import { useNetworkCheck, type CheckVerdict } from "src/composables/useNetworkCheck"
 import { useLocalMedia } from "src/composables/call/useLocalMedia"
@@ -32,7 +32,6 @@ const entries = shallowRef<IceServerEntry[]>([])
 const verdict = ref<CheckVerdict | null>(null)
 const message = ref<string | null>(null)
 
-const iceServers = computed(() => toRtcIceServers(entries.value))
 const title = computed(() => room.value?.title || "Зустріч")
 const canJoin = computed(() => verdict.value !== "fail")
 
@@ -154,13 +153,7 @@ function onLeft(reason: "left" | "full" | "error", text?: string) {
 </script>
 
 <template>
-  <CallView
-    v-if="phase === 'call'"
-    :code="code"
-    :ice-servers="iceServers"
-    :media="media"
-    @left="onLeft"
-  />
+  <CallView v-if="phase === 'call'" :code="code" :entries="entries" :media="media" @left="onLeft" />
 
   <main v-else class="grid min-h-dvh place-items-center p-4">
     <!-- Preview (Google Meet style): camera on the left, status and Join on the right -->

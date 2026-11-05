@@ -1,30 +1,42 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue"
 import Button from "primevue/button"
-import SelectButton from "primevue/selectbutton"
 
 import QualityBadge from "src/components/call/QualityBadge.vue"
 import VideoTile from "src/components/call/VideoTile.vue"
 import { useAuth } from "src/composables/useAuth"
-import { useCall, type RemoteView } from "src/composables/call/useCall"
+import { useCall, type MediaRoute, type RemoteView } from "src/composables/call/useCall"
 import type { ConnStats } from "src/composables/call/stats"
 import type { LocalMedia } from "src/composables/call/useLocalMedia"
+import type { IceServerEntry } from "src/api/iceServers"
 
-const props = defineProps<{ code: string; iceServers: RTCIceServer[]; media: LocalMedia }>()
+const props = defineProps<{ code: string; entries: IceServerEntry[]; media: LocalMedia }>()
 const emit = defineEmits<{ left: [reason: "left" | "full" | "error", message?: string] }>()
 
 const { isAdmin, user } = useAuth()
-const call = useCall(props.code, props.iceServers, props.media)
-const { remotes, status, policy } = call
+const call = useCall(props.code, props.entries, props.media)
+const { remotes, status, route, turnServers } = call
 const media = props.media
 
 const showStats = ref(false)
 const showSettings = ref(false)
 
-const policyOptions = [
-  { label: "Авто", value: "all" },
-  { label: "Тільки через TURN", value: "relay" },
-]
+const routeOptions = computed<{ label: string; value: MediaRoute }[]>(() => [
+  { label: "Авто: напряму, TURN як запасний", value: { mode: "auto" } },
+  ...(turnServers.length
+    ? [
+        {
+          label: "Тільки через TURN (будь-який)",
+          value: { mode: "relay", serverId: null } as MediaRoute,
+        },
+        ...turnServers.map((s) => ({
+          label: `Тільки через ${s.label}`,
+          value: { mode: "relay", serverId: s.id } as MediaRoute,
+        })),
+      ]
+    : []),
+])
+const isRoute = (r: MediaRoute) => JSON.stringify(r) === JSON.stringify(route.value)
 
 onMounted(() => void call.join())
 
@@ -194,17 +206,27 @@ function endResize() {
       class="glass-solid absolute right-6 bottom-24 z-10 flex flex-col gap-3 p-4 text-sm"
     >
       <p class="font-semibold">Маршрут медіа (для всіх у дзвінку)</p>
-      <SelectButton
-        :model-value="policy"
-        :options="policyOptions"
-        option-label="label"
-        option-value="value"
-        :allow-empty="false"
-        @update:model-value="(v: RTCIceTransportPolicy) => call.setPolicy(v)"
-      />
+      <div class="flex flex-col gap-1" role="radiogroup" aria-label="Маршрут медіа">
+        <Button
+          v-for="opt in routeOptions"
+          :key="opt.label"
+          :label="opt.label"
+          :icon="isRoute(opt.value) ? 'pi pi-check-circle' : 'pi pi-circle'"
+          :severity="isRoute(opt.value) ? 'info' : 'secondary'"
+          text
+          size="small"
+          class="justify-start"
+          role="radio"
+          :aria-checked="isRoute(opt.value)"
+          @click="call.setRoute(opt.value)"
+        />
+      </div>
+      <p v-if="!turnServers.length" class="max-w-64 text-amber-300">
+        Немає жодного ввімкненого TURN-сервера — додайте його в адмінці.
+      </p>
       <p class="max-w-64 text-white/60">
-        «Тільки через TURN» — якщо пряме з'єднання ріжуть. Якщо робочого TURN немає, дзвінок
-        лишиться на поточному маршруті. Перевірте результат у статистиці (📊 → Маршрут).
+        «Тільки через TURN» — якщо пряме з'єднання ріжуть. Якщо вибраний TURN недоступний, дзвінок
+        лишиться на поточному маршруті. Результат — у 📊 → Маршрут і Сервер.
       </p>
     </aside>
 

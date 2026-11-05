@@ -92,11 +92,21 @@ export function createStatsSampler(pc: RTCPeerConnection) {
       lossPct: number | null = null
     if (prev) {
       const sec = (now - prev.at) / 1000
-      inKbps = Math.round(((inBytes - prev.inBytes) * 8) / 1000 / sec)
-      outKbps = Math.round(((outBytes - prev.outBytes) * 8) / 1000 / sec)
+      // Counters restart when RTP streams are renegotiated (e.g. after an ICE restart):
+      // a negative delta means "no data for this interval", not a negative rate.
+      const rate = (now: number, before: number) =>
+        now >= before ? Math.round(((now - before) * 8) / 1000 / sec) : null
+      inKbps = rate(inBytes, prev.inBytes)
+      outKbps = rate(outBytes, prev.outBytes)
       const dLost = lost - prev.lost
-      const dTotal = dLost + (received - prev.received)
-      lossPct = dTotal > 0 ? Math.round((dLost / dTotal) * 1000) / 10 : 0
+      const dReceived = received - prev.received
+      const dTotal = dLost + dReceived
+      lossPct =
+        dLost >= 0 && dReceived >= 0 && dTotal > 0
+          ? Math.round((dLost / dTotal) * 1000) / 10
+          : dTotal === 0
+            ? 0
+            : null
     }
     prev = { at: now, inBytes, outBytes, lost, received }
 

@@ -62,7 +62,9 @@ export function createPeer(opts: PeerOptions) {
   pc.onconnectionstatechange = () => {
     opts.onState(pc.connectionState)
     // Network changed or the path died: look for a new one without dropping the call.
-    if (pc.connectionState === "failed") pc.restartIce()
+    // Only one side restarts: simultaneous restart offers collide and the rollback
+    // on the polite side could break one media direction.
+    if (pc.connectionState === "failed" && !opts.polite) pc.restartIce()
   }
 
   async function onDescription(description: RTCSessionDescriptionInit): Promise<void> {
@@ -107,16 +109,10 @@ export function createPeer(opts: PeerOptions) {
       .catch((e) => console.warn(`[peer] ${type} failed`, e))
   }
 
-  /** E.g. admin switched "auto" ↔ "relay only": new path search without dropping the call. */
-  function reconfigure(config: RTCConfiguration): void {
-    pc.setConfiguration(config)
-    pc.restartIce()
-  }
-
   function close(): void {
     pc.ontrack = pc.onicecandidate = pc.onnegotiationneeded = pc.onconnectionstatechange = null
     pc.close()
   }
 
-  return { pc, remoteId: opts.remoteId, handle, reconfigure, close }
+  return { pc, remoteId: opts.remoteId, handle, close }
 }

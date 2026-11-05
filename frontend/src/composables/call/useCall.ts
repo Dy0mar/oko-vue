@@ -2,6 +2,7 @@ import { computed, markRaw, onBeforeUnmount, reactive, ref, watch } from "vue"
 
 import { useAuth } from "src/composables/useAuth"
 import type { LocalMedia } from "src/composables/call/useLocalMedia"
+import { toRtcIceServers, type IceServerEntry } from "src/api/iceServers"
 import { createPeer, type Peer } from "src/composables/call/peer"
 import { createSignaling, type PeerInfo, type SignalMessage } from "src/composables/call/signaling"
 import { createStatsSampler, type ConnStats, type Quality } from "src/composables/call/stats"
@@ -28,15 +29,42 @@ export interface RemoteView {
 }
 
 /** `media` is owned by the meeting page: the preview camera continues into the call. */
-export function useCall(code: string, iceServers: RTCIceServer[], media: LocalMedia) {
+/**
+ * How media may travel. "auto": direct when possible, TURN as fallback.
+ * "relay": TURN only — through every TURN server (serverId null) or one specific server.
+ */
+export type MediaRoute = { mode: "auto" } | { mode: "relay"; serverId: string | null }
+
+const hasTurn = (e: IceServerEntry) =>
+  e.iceServers.some((s) =>
+    (Array.isArray(s.urls) ? s.urls : [s.urls]).some((u) => u.startsWith("turn")),
+  )
+
+export function useCall(code: string, entries: IceServerEntry[], media: LocalMedia) {
   const auth = useAuth()
 
   const status = ref<CallStatus>("idle")
   const error = ref<string | null>(null)
-  const policy = ref<RTCIceTransportPolicy>("all")
+  const route = ref<MediaRoute>({ mode: "auto" })
+  /** TURN servers this participant has credentials for (for the admin route picker). */
+  const turnServers = entries.filter(hasTurn).map(({ id, label }) => ({ id, label }))
   const remotes = ref<RemoteView[]>([])
 
-  const peers = new Map<string, { peer: Peer; sample: () => Promise<ConnStats> }>()
+  /**
+   * One connection per remote peer. Every RTCPeerConnection has its own session id (`sid`),
+   * sent with each description/candidate, so messages of an already closed connection
+   * (e.g. right after a route switch) are never fed into its replacement.
+   */
+  interface Conn {
+    peer: Peer
+    sample: () => Promise<ConnStats>
+    sid: string
+    /** sid of the remote connection we are negotiating with (set by its first message). */
+    remoteSid: string | null
+    /** Remote sids that belong to connections we have already replaced. */
+    deadSids: Set<string>
+  }
+  const peers = new Map<string, Conn>()
   const self: PeerInfo = {
     peerId: crypto.randomUUID(),
     userId: auth.user.value?.id ?? "",
@@ -45,7 +73,15 @@ export function useCall(code: string, iceServers: RTCIceServer[], media: LocalMe
     joinedAt: Date.now(),
   }
 
-  const config = (): RTCConfiguration => ({ iceServers, iceTransportPolicy: policy.value })
+  function config(): RTCConfiguration {
+    const r = route.value
+    if (r.mode === "auto")
+      return { iceServers: toRtcIceServers(entries), iceTransportPolicy: "all" }
+    // One server: each participant uses ITS OWN credentials for that server id.
+    const chosen = r.serverId ? entries.filter((e) => e.id === r.serverId) : []
+    const pool = chosen.length ? chosen : entries
+    return { iceServers: toRtcIceServers(pool), iceTransportPolicy: "relay" }
+  }
   const view = (peerId: string) => remotes.value.find((r) => r.peerId === peerId)
 
   const signaling = createSignaling(code, self, {
@@ -75,20 +111,43 @@ export function useCall(code: string, iceServers: RTCIceServer[], media: LocalMe
       theirQuality: "unknown",
     })
     remotes.value = [...remotes.value, remote]
+    connect(remote, new Set())
+    // Tell the newcomer our mic/cam state.
+    signaling.send(info.peerId, "media", { micOn: media.micOn.value, camOn: media.camOn.value })
+  }
 
+  /** (Re)creates the RTCPeerConnection for a remote participant, keeping its view. */
+  function connect(remote: RemoteView, deadSids: Set<string>): void {
+    const sid = crypto.randomUUID()
     const peer = createPeer({
-      remoteId: info.peerId,
+      remoteId: remote.peerId,
       // Deterministic roles for perfect negotiation.
-      polite: self.peerId > info.peerId,
+      polite: self.peerId > remote.peerId,
       config: config(),
       localStream: media.stream.value,
-      send: (type, data) => signaling.send(info.peerId, type, data),
+      send: (type, data) => signaling.send(remote.peerId, type, { sid, data }),
       onStream: (stream) => (remote.stream = markRaw(stream)),
       onState: (state) => (remote.state = state),
     })
-    peers.set(info.peerId, { peer, sample: createStatsSampler(peer.pc) })
-    // Tell the newcomer our mic/cam state.
-    signaling.send(info.peerId, "media", { micOn: media.micOn.value, camOn: media.camOn.value })
+    peers.set(remote.peerId, {
+      peer,
+      sample: createStatsSampler(peer.pc),
+      sid,
+      remoteSid: null,
+      deadSids,
+    })
+  }
+
+  /** New connection with the current config; messages of the old one become dead. */
+  function reconnect(peerId: string): void {
+    const conn = peers.get(peerId)
+    const remote = view(peerId)
+    if (!conn || !remote) return
+    conn.peer.close()
+    if (conn.remoteSid) conn.deadSids.add(conn.remoteSid)
+    remote.state = "new"
+    remote.stats = null
+    connect(remote, conn.deadSids)
   }
 
   function dropPeer(peerId: string): void {
@@ -122,8 +181,7 @@ export function useCall(code: string, iceServers: RTCIceServer[], media: LocalMe
     switch (msg.type) {
       case "description":
       case "candidate":
-        ensurePeer({ peerId: msg.from })
-        peers.get(msg.from)?.peer.handle(msg.type, msg.data)
+        routeToConnection(msg)
         break
       case "media": {
         const v = view(msg.from)
@@ -135,24 +193,44 @@ export function useCall(code: string, iceServers: RTCIceServer[], media: LocalMe
         if (v) v.theirQuality = (msg.data as { quality: Quality }).quality
         break
       }
-      case "ice-policy":
-        applyPolicy((msg.data as { policy: RTCIceTransportPolicy }).policy)
+      case "media-route":
+        applyRoute(msg.data as MediaRoute)
         break
     }
   }
 
-  // --- admin: route switch -----------------------------------------------------
-  function applyPolicy(next: RTCIceTransportPolicy): void {
-    if (next === policy.value) return
-    policy.value = next
-    for (const { peer } of peers.values()) peer.reconfigure(config())
+  function routeToConnection(msg: SignalMessage): void {
+    const { sid, data } = msg.data as { sid: string; data: unknown }
+    ensurePeer({ peerId: msg.from })
+    let conn = peers.get(msg.from)!
+    if (conn.deadSids.has(sid)) return // from a connection we already replaced
+    if (conn.remoteSid && conn.remoteSid !== sid) {
+      // The remote side started a NEW connection (route switch, page reload): follow it.
+      const isOffer =
+        msg.type === "description" && (data as RTCSessionDescriptionInit).type === "offer"
+      if (!isOffer) return
+      reconnect(msg.from)
+      conn = peers.get(msg.from)!
+    }
+    conn.remoteSid = sid
+    conn.peer.handle(msg.type, data)
   }
 
-  /** Admin only: "all" (direct when possible) ↔ "relay" (TURN only), for everyone in the call. */
-  function setPolicy(next: RTCIceTransportPolicy): void {
+  // --- admin: route switch -----------------------------------------------------
+  // An ICE restart on a live connection does not reliably move Chrome to new relay pairs
+  // (the new pairs stay "waiting" while the old host pair keeps working), so a route switch
+  // rebuilds the connections: ~1–2 s of frozen video, but the route is guaranteed.
+  function applyRoute(next: MediaRoute): void {
+    if (JSON.stringify(next) === JSON.stringify(route.value)) return
+    route.value = next
+    for (const peerId of peers.keys()) reconnect(peerId)
+  }
+
+  /** Admin only: switch the media route for everyone in the call (connections are rebuilt). */
+  function setRoute(next: MediaRoute): void {
     if (!auth.isAdmin.value) return
-    signaling.send("*", "ice-policy", { policy: next })
-    applyPolicy(next)
+    signaling.send("*", "media-route", next)
+    applyRoute(next)
   }
 
   // --- stats -------------------------------------------------------------------
@@ -197,5 +275,5 @@ export function useCall(code: string, iceServers: RTCIceServer[], media: LocalMe
 
   const anyConnected = computed(() => remotes.value.some((r) => r.state === "connected"))
 
-  return { status, error, media, remotes, policy, anyConnected, join, leave, setPolicy }
+  return { status, error, media, remotes, route, turnServers, anyConnected, join, leave, setRoute }
 }
