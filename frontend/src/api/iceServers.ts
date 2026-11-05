@@ -1,12 +1,13 @@
 import { supabase } from "src/api/supabase"
+import type { IceKind } from "src/api/iceProviders"
 
 /** One configured server (admin's `ice_servers` row), as returned by the `ice-servers` edge function. */
 export interface IceServerEntry {
   id: string
   label: string
-  kind: "static" | "cloudflare"
+  kind: IceKind
   iceServers: RTCIceServer[]
-  /** Set when the server could not be prepared (e.g. Cloudflare secrets missing). */
+  /** Set when the server could not be prepared (e.g. provider secrets missing). */
   error?: string
 }
 

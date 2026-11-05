@@ -18,6 +18,7 @@ import {
   type IceServerInput,
   type IceServerRow,
 } from "src/api/adminIceServers"
+import { PROVIDERS } from "src/api/iceProviders"
 
 const props = defineProps<{ server: IceServerRow | null }>()
 const visible = defineModel<boolean>("visible", { required: true })
@@ -25,7 +26,7 @@ const emit = defineEmits<{ saved: [] }>()
 
 const kindOptions = [
   { label: "Статичний", value: "static" },
-  { label: "Cloudflare TURN", value: "cloudflare" },
+  ...Object.entries(PROVIDERS).map(([value, p]) => ({ label: p.label, value })),
 ]
 
 const form = reactive({
@@ -135,8 +136,14 @@ async function save() {
         </div>
       </template>
       <Message v-else severity="secondary">
-        Тимчасові логін і пароль генеруються автоматично з ключів <code>CF_TURN_KEY_ID</code> /
-        <code>CF_TURN_API_TOKEN</code> (Supabase secrets).
+        Тимчасові логін і пароль генеруються автоматично з ключів
+        <template v-for="(name, i) in PROVIDERS[form.kind].secrets" :key="name">
+          <span v-if="i">/</span> <code>{{ name }}</code>
+        </template>
+        (Supabase secrets).
+        <a :href="PROVIDERS[form.kind].site" target="_blank" rel="noopener" class="underline">
+          Сайт провайдера
+        </a>
       </Message>
 
       <div class="flex flex-wrap items-center gap-6">

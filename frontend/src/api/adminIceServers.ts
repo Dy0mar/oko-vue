@@ -1,10 +1,11 @@
 import { supabase } from "src/api/supabase"
+import { isProvider, type IceKind } from "src/api/iceProviders"
 
 /** Admin-only (RLS). Regular users get servers through the `ice-servers` edge function. */
 export interface IceServerRow {
   id: string
   label: string
-  kind: "static" | "cloudflare"
+  kind: IceKind
   urls: string[]
   username: string | null
   credential: string | null
@@ -40,7 +41,7 @@ export async function deleteIceServer(id: string): Promise<void> {
 /** Returns an error message or null. */
 export function validateIceServer(input: IceServerInput): string | null {
   if (!input.label.trim()) return "Вкажіть назву"
-  if (input.kind === "cloudflare") return null
+  if (isProvider(input.kind)) return null
   if (input.urls.length === 0) return "Додайте хоча б одну адресу"
   const bad = input.urls.find((u) => !/^(stuns?|turns?):[^\s]+$/i.test(u))
   if (bad) return `Невірна адреса: ${bad} (очікується stun:, turn: або turns:)`

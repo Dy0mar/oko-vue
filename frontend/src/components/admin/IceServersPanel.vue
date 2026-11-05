@@ -15,6 +15,7 @@ import {
   type IceServerRow,
 } from "src/api/adminIceServers"
 import { fetchIceServers } from "src/api/iceServers"
+import { PROVIDERS, type ProviderKind } from "src/api/iceProviders"
 import { expandIceServers, testIceUrl, type IceUrlTest } from "src/diagnostics/ice"
 import IceServerDialog from "src/components/admin/IceServerDialog.vue"
 
@@ -86,7 +87,7 @@ function remove(server: IceServerRow) {
   })
 }
 
-/** Static servers: tested from the row itself. Cloudflare: via the edge function (fresh credentials). */
+/** Static servers: tested from the row itself. Providers: via the edge function (fresh credentials). */
 async function urlTests(server: IceServerRow): Promise<IceUrlTest[] | string> {
   if (server.kind === "static") {
     const ice: RTCIceServer = { urls: server.urls }
@@ -157,11 +158,15 @@ onMounted(load)
         <template #body="{ data }">
           <div class="flex flex-wrap items-center gap-2">
             <span :class="{ 'text-muted-color': !data.enabled }">{{ data.label }}</span>
-            <Tag v-if="data.kind === 'cloudflare'" value="Cloudflare" severity="warn" />
+            <Tag
+              v-if="data.kind !== 'static'"
+              :value="PROVIDERS[data.kind as ProviderKind].label"
+              severity="warn"
+            />
             <i v-if="data.credential" class="pi pi-key text-xs text-muted-color" title="є пароль" />
           </div>
           <div class="font-mono text-xs text-muted-color wrap-anywhere">
-            {{ data.kind === "cloudflare" ? "генерується автоматично" : data.urls.join(" · ") }}
+            {{ data.kind === "static" ? data.urls.join(" · ") : "генерується автоматично" }}
           </div>
           <ul v-if="results[data.id]" class="mt-2 flex flex-col gap-1">
             <li

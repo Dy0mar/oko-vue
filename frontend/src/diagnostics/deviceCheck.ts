@@ -14,7 +14,7 @@ interface Stored {
   at: number
 }
 
-/** Stable across calls: Cloudflare credentials rotate, so only its id counts. */
+/** Stable across calls: provider credentials rotate, so only the row id + kind count. */
 export function serversFingerprint(entries: IceServerEntry[]): string {
   const text = entries
     .map(
