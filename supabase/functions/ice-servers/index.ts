@@ -75,12 +75,15 @@ async function toEntry(row: IceServerRow, req: Request): Promise<ServerEntry> {
     return { ...base, iceServers: cleanUrls(await PROVIDERS[row.kind](req)) }
   } catch (e) {
     console.error(`${row.kind} turn failed`, e)
-    return { ...base, iceServers: [], error: e instanceof Error ? e.message : String(e) }
+    // The message goes to every participant (and into diag reports): never include URLs,
+    // they may carry the API key (Metered passes it as a query parameter).
+    return { ...base, iceServers: [], error: publicError(e) }
   }
 }
 
 function secret(...names: string[]): string[] {
-  const values = names.map((n) => Deno.env.get(n) ?? "")
+  // Whitespace-only counts as unset (easy to get from a copy-paste or an empty shell variable).
+  const values = names.map((n) => (Deno.env.get(n) ?? "").trim())
   if (values.some((v) => !v)) throw new Error(`${names.join(" / ")} not set`)
   return values
 }
@@ -107,7 +110,8 @@ async function cloudflareIceServers(): Promise<RTCIceServer[]> {
 
 // https://www.metered.ca/tools/openrelay/ — returns the iceServers array itself.
 async function meteredIceServers(): Promise<RTCIceServer[]> {
-  const [app, apiKey] = secret("METERED_APP_NAME", "METERED_API_KEY")
+  const [rawApp, apiKey] = secret("METERED_APP_NAME", "METERED_API_KEY")
+  const app = meteredAppName(rawApp)
   const url = `https://${encodeURIComponent(app)}.metered.live/api/v1/turn/credentials?apiKey=${encodeURIComponent(apiKey)}`
   const res = await fetch(url, { signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) })
   return await json<RTCIceServer[]>(res, "Metered")
@@ -132,10 +136,32 @@ async function turnixIceServers(req: Request): Promise<RTCIceServer[]> {
   return (await json<{ iceServers: RTCIceServer[] }>(res, "Turnix")).iceServers
 }
 
-/** Port 53 is blocked by browsers (Cloudflare docs) — drop it to avoid a useless timeout. */
+/** Accepts "oko", "oko.metered.live" or "https://oko.metered.live/..." → "oko". */
+function meteredAppName(value: string): string {
+  return value
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/[/?#].*$/, "")
+    .replace(/\.metered\.live$/i, "")
+}
+
+/** Provider error safe to show to users: URLs (with possible keys) are cut out. */
+function publicError(e: unknown): string {
+  const message = e instanceof Error ? e.message : String(e)
+  return message.replace(/https?:\/\/\S+/gi, "<url>").replace(/apiKey=[^\s&)]*/gi, "apiKey=<hidden>")
+}
+
+/**
+ * Port 53 is blocked by browsers (Cloudflare docs) — drop it to avoid a useless timeout.
+ * Duplicate URLs (some providers repeat them) are dropped too.
+ */
 function cleanUrls(servers: RTCIceServer[]): RTCIceServer[] {
+  const seen = new Set<string>()
   return servers
-    .map((s) => ({ ...s, urls: toArray(s.urls).filter((u) => !/:53(\?|$)/.test(u)) }))
+    .map((s) => ({
+      ...s,
+      urls: toArray(s.urls).filter((u) => !/:53(\?|$)/.test(u) && !seen.has(u) && !!seen.add(u)),
+    }))
     .filter((s) => s.urls.length > 0)
 }
 
